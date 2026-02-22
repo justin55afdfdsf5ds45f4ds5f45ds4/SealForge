@@ -1,0 +1,26 @@
+{
+  "name": "sealforge-scripts",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "create-listing": "tsx src/create-listing.ts",
+    "encrypt-upload": "tsx src/encrypt-and-upload.ts",
+    "update-listing": "tsx src/update-listing.ts",
+    "purchase": "tsx src/purchase.ts",
+    "decrypt-download": "tsx src/decrypt-and-download.ts",
+    "full-pipeline": "tsx src/full-pipeline.ts",
+    "verify-all": "tsx src/verify-all.ts",
+    "agent": "tsx src/sealforge-agent.ts"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.45.2",
+    "@mysten/seal": "^0.10.0",
+    "@mysten/walrus": "^0.7.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "@types/node": "^22.0.0"
+  }
+}

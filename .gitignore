@@ -1,0 +1,25 @@
+.tools/
+node_modules/
+dist/
+build/
+.vercel/
+*.log
+.env
+.env.*
+nul
+
+# Sui build artifacts (keep sources)
+move/build/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Temporary scripts
+install-sui.ps1
+extract-sui.ps1
