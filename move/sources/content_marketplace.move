@@ -127,6 +127,16 @@ module sealforge::content_marketplace {
         transfer::share_object(listing);
     }
 
+    /// Update the price on a listing (only via ListingCap)
+    entry fun update_price(
+        cap: &ListingCap,
+        listing: &mut ContentListing,
+        new_price: u64,
+    ) {
+        assert!(cap.listing_id == object::id(listing), ENotOwner);
+        listing.price = new_price;
+    }
+
     /// Update the Walrus blob ID on a listing (only via ListingCap)
     entry fun update_blob_id(
         cap: &ListingCap,
