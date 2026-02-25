@@ -1,5 +1,5 @@
 import { useSuiClientQuery } from '@mysten/dapp-kit';
-import { MARKETPLACE_ID, PACKAGE_ID, explorerUrl } from '../config';
+import { MARKETPLACE_ID, TREASURY_ID, AGENT_ADDRESS, PACKAGE_ID, explorerUrl } from '../config';
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
@@ -11,15 +11,35 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
   );
 }
 
+function formatSUI(mist: string | number): string {
+  return (Number(mist) / 1_000_000_000).toFixed(4);
+}
+
 export default function Dashboard() {
   const { data: marketplaceObj, isLoading } = useSuiClientQuery('getObject', {
     id: MARKETPLACE_ID,
     options: { showContent: true },
   });
 
+  const { data: treasuryObj, isLoading: treasuryLoading } = useSuiClientQuery('getObject', {
+    id: TREASURY_ID,
+    options: { showContent: true },
+  });
+
+  const { data: balanceData, isLoading: balanceLoading } = useSuiClientQuery('getBalance', {
+    owner: AGENT_ADDRESS,
+  });
+
   const fields = (marketplaceObj?.data?.content as any)?.fields;
   const totalListings = fields?.total_listings ?? '—';
   const totalSales = fields?.total_sales ?? '—';
+
+  const tFields = (treasuryObj?.data?.content as any)?.fields;
+  const totalEarned = tFields?.total_earned ?? '0';
+  const totalSpent = tFields?.total_spent ?? '0';
+  const contentCreated = tFields?.total_content_created ?? '0';
+  const treasurySales = tFields?.total_sales ?? '0';
+  const agentBalance = balanceData?.totalBalance ?? '0';
 
   return (
     <div className="space-y-6">
@@ -28,12 +48,39 @@ export default function Dashboard() {
         <p className="text-gray-400 mt-1">SealForge autonomous content marketplace on Sui testnet</p>
       </div>
 
-      {/* Stats Grid */}
+      {/* Marketplace Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Listings" value={isLoading ? '...' : totalListings} sub="Content pieces created" />
         <StatCard label="Total Sales" value={isLoading ? '...' : totalSales} sub="Purchases completed" />
         <StatCard label="Encryption" value="Seal TSS" sub="2-of-2 threshold" />
         <StatCard label="Storage" value="Walrus" sub="Decentralized blobs" />
+      </div>
+
+      {/* Agent P&L */}
+      <div>
+        <h3 className="text-lg font-semibold text-white mb-3">Agent P&L</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="Wallet Balance"
+            value={balanceLoading ? '...' : `${formatSUI(agentBalance)} SUI`}
+            sub={<a href={explorerUrl('account', AGENT_ADDRESS)} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300">View on SuiScan</a> as any}
+          />
+          <StatCard
+            label="Total Earned"
+            value={treasuryLoading ? '...' : `${formatSUI(totalEarned)} SUI`}
+            sub={`${treasurySales} sales recorded`}
+          />
+          <StatCard
+            label="Total Spent"
+            value={treasuryLoading ? '...' : `${formatSUI(totalSpent)} SUI`}
+            sub="Gas + storage costs"
+          />
+          <StatCard
+            label="Content Created"
+            value={treasuryLoading ? '...' : contentCreated}
+            sub="Reports published by agent"
+          />
+        </div>
       </div>
 
       {/* Architecture Overview */}
