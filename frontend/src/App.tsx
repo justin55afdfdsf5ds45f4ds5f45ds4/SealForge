@@ -23,7 +23,13 @@ export default function App() {
             <h1 className="text-xl font-bold text-white">SealForge</h1>
             <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">testnet</span>
           </div>
-          <ConnectButton />
+          <div className="flex items-center gap-4">
+            <div className="hidden sm:flex items-center gap-2 bg-gray-800/50 rounded-lg px-3 py-1.5">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-xs text-green-400 font-medium">Agent Active</span>
+            </div>
+            <ConnectButton />
+          </div>
         </div>
       </header>
 

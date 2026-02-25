@@ -20,6 +20,7 @@ async function main() {
       tx.object(marketplaceId),
       tx.pure.vector('u8', Array.from(new TextEncoder().encode(title))),
       tx.pure.vector('u8', Array.from(new TextEncoder().encode(description))),
+      tx.pure.vector('u8', Array.from(new TextEncoder().encode('blue-data'))),
       tx.pure.u64(priceInMist),
       tx.object('0x6'), // Clock
     ],

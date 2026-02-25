@@ -3,17 +3,22 @@ import { useSuiClientQuery, useSignAndExecuteTransaction, useSignPersonalMessage
 import { Transaction } from '@mysten/sui/transactions';
 import { fromHex } from '@mysten/sui/utils';
 import { SealClient, SessionKey, EncryptedObject } from '@mysten/seal';
-import { PACKAGE_ID, MARKETPLACE_ID, SEAL_KEY_SERVERS, WALRUS_AGGREGATOR, explorerUrl } from '../config';
+import { PACKAGE_ID, MARKETPLACE_ID, SEAL_KEY_SERVERS, WALRUS_AGGREGATOR } from '../config';
+import { getTheme } from '../themes';
+import IntelViewer from './IntelViewer';
 import type { WalletAccount } from '@mysten/wallet-standard';
 
 interface ListingFields {
   creator: string;
   title: number[];
   description: number[];
+  thumbnail_url: number[];
   price: string;
   walrus_blob_id: number[];
   buyers: string[];
+  total_revenue: string;
   is_active: boolean;
+  created_at: string;
 }
 
 function decodeBytes(bytes: number[]): string {
@@ -22,6 +27,16 @@ function decodeBytes(bytes: number[]): string {
 
 function formatSUI(mist: string): string {
   return (Number(mist) / 1_000_000_000).toFixed(2);
+}
+
+function getTimeAgo(ms: string): string {
+  const diff = Date.now() - Number(ms);
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 export default function Marketplace({ account }: { account: WalletAccount | null }) {
@@ -35,13 +50,20 @@ export default function Marketplace({ account }: { account: WalletAccount | null
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-white">Marketplace</h2>
-        <p className="text-gray-400 mt-1">
-          {account
-            ? `Connected: ${account.address.slice(0, 8)}...${account.address.slice(-6)}`
-            : 'Connect wallet to purchase and decrypt content'}
-        </p>
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+            {'\u{1F510}'} SealForge Intelligence Marketplace
+          </h2>
+          <p className="text-gray-400 mt-1">
+            Autonomous AI-curated intel. Seal-encrypted. Pay to unlock.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 bg-gray-800/50 rounded-lg px-3 py-1.5">
+          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          <span className="text-xs text-green-400 font-medium">Agent: ACTIVE</span>
+        </div>
       </div>
 
       {!account && (
@@ -52,10 +74,12 @@ export default function Marketplace({ account }: { account: WalletAccount | null
 
       {listingIds.length === 0 ? (
         <div className="bg-[#111827] rounded-xl p-12 border border-gray-800 text-center">
-          <p className="text-gray-500">No listings available yet.</p>
+          <div className="text-4xl mb-3">{'\u{1F916}'}</div>
+          <p className="text-gray-400 font-medium">Agent is scanning for signals...</p>
+          <p className="text-gray-600 text-sm mt-1">New intelligence packages will appear here.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {listingIds.map((id) => (
             <MarketplaceCard key={id} listingId={id} account={account} />
           ))}
@@ -73,6 +97,7 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
   const [decryptedContent, setDecryptedContent] = useState<string>('');
   const [purchasing, setPurchasing] = useState(false);
   const [decrypting, setDecrypting] = useState(false);
+  const [showDecrypted, setShowDecrypted] = useState(false);
 
   const { data, refetch } = useSuiClientQuery('getObject', {
     id: listingId,
@@ -80,10 +105,23 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
   });
 
   const fields = (data?.data?.content as any)?.fields as ListingFields | undefined;
-  if (!fields) return null;
+  if (!fields) {
+    return (
+      <div className="rounded-xl overflow-hidden border border-gray-800 bg-[#111827]">
+        <div className="h-16 animate-shimmer" />
+        <div className="p-5 space-y-3">
+          <div className="h-5 bg-gray-800 rounded animate-shimmer w-3/4" />
+          <div className="h-4 bg-gray-800 rounded animate-shimmer w-full" />
+          <div className="h-8 bg-gray-800 rounded animate-shimmer w-1/2" />
+        </div>
+      </div>
+    );
+  }
 
   const title = decodeBytes(fields.title);
   const description = decodeBytes(fields.description);
+  const themeName = fields.thumbnail_url?.length > 0 ? decodeBytes(fields.thumbnail_url) : 'blue-data';
+  const theme = getTheme(themeName);
   const blobId = fields.walrus_blob_id.length > 0 ? decodeBytes(fields.walrus_blob_id) : null;
   const hasPurchased = account ? fields.buyers.includes(account.address) : false;
   const isCreator = account?.address === fields.creator;
@@ -110,9 +148,9 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
         { transaction: tx },
         {
           onSuccess: async (result) => {
-            setStatus('Purchase confirmed! Waiting for indexing...');
+            setStatus('Purchase confirmed!');
             await suiClient.waitForTransaction({ digest: result.digest });
-            setStatus('Purchase complete!');
+            setStatus('');
             refetch();
             setPurchasing(false);
           },
@@ -133,16 +171,13 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
     setDecrypting(true);
     setStatus('Downloading from Walrus...');
     try {
-      // Download encrypted blob
       const resp = await fetch(`${WALRUS_AGGREGATOR}/v1/blobs/${blobId}`);
       if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
       const encryptedData = new Uint8Array(await resp.arrayBuffer());
 
-      // Parse encrypted object
       const parsed = EncryptedObject.parse(encryptedData);
       const idRawBytes = fromHex(parsed.id);
 
-      // Create session key without signer (browser wallet flow)
       setStatus('Creating session key...');
       const sessionKey = await SessionKey.create({
         address: account.address,
@@ -151,21 +186,18 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
         suiClient: suiClient as any,
       });
 
-      // Sign the personal message with the wallet
-      setStatus('Please sign the session key message in your wallet...');
+      setStatus('Please sign in your wallet...');
       const personalMessage = sessionKey.getPersonalMessage();
       const { signature } = await signPersonalMessage({ message: personalMessage });
       await sessionKey.setPersonalMessageSignature(signature);
 
-      // Create Seal client
       const sealClient = new SealClient({
         suiClient: suiClient as any,
         serverConfigs: SEAL_KEY_SERVERS.map((id) => ({ objectId: id, weight: 1 })),
         verifyKeyServers: false,
       });
 
-      // Build seal_approve transaction
-      setStatus('Building access proof...');
+      setStatus('Decrypting...');
       const approveTx = new Transaction();
       approveTx.moveCall({
         target: `${PACKAGE_ID}::content_marketplace::seal_approve`,
@@ -176,8 +208,6 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
       });
       const txBytes = await approveTx.build({ client: suiClient, onlyTransactionKind: true });
 
-      // Decrypt
-      setStatus('Decrypting with Seal key servers...');
       const decrypted = await sealClient.decrypt({
         data: encryptedData,
         sessionKey,
@@ -185,7 +215,9 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
       });
 
       setDecryptedContent(new TextDecoder().decode(decrypted));
-      setStatus('Decrypted successfully!');
+      setStatus('');
+      // Trigger vault-crack animation
+      setTimeout(() => setShowDecrypted(true), 100);
     } catch (err: any) {
       setStatus(`Decrypt failed: ${err.message}`);
     } finally {
@@ -193,61 +225,94 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
     }
   }
 
-  return (
-    <div className="bg-[#111827] rounded-xl p-5 border border-gray-800">
-      <div className="flex items-start justify-between mb-2">
-        <h3 className="text-white font-semibold">{title}</h3>
-        <span className="text-blue-400 font-medium text-sm">{formatSUI(fields.price)} SUI</span>
-      </div>
-      <p className="text-gray-500 text-sm mb-4">{description}</p>
-
-      <div className="flex items-center gap-2 text-xs text-gray-500 mb-4">
-        <span>{fields.buyers.length} buyer{fields.buyers.length !== 1 ? 's' : ''}</span>
-        {hasAccess && <span className="text-green-400">You have access</span>}
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex gap-2">
-        {!hasAccess && account && (
+  // If decrypted content is showing, render full IntelViewer
+  if (showDecrypted && decryptedContent) {
+    return (
+      <div className="col-span-full animate-vault-crack">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className={`text-lg font-bold ${theme.accent}`}>{theme.icon} {title}</h3>
           <button
-            onClick={handlePurchase}
-            disabled={purchasing || !fields.is_active}
-            className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+            onClick={() => { setShowDecrypted(false); setDecryptedContent(''); }}
+            className="text-sm text-gray-500 hover:text-white px-3 py-1 rounded-lg bg-gray-800 transition-colors"
           >
-            {purchasing ? 'Processing...' : `Buy Access (${formatSUI(fields.price)} SUI)`}
+            Close
           </button>
-        )}
-        {hasAccess && blobId && (
-          <button
-            onClick={handleDecrypt}
-            disabled={decrypting}
-            className="flex-1 bg-green-500 hover:bg-green-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
-          >
-            {decrypting ? 'Decrypting...' : 'Decrypt & Read'}
-          </button>
-        )}
-        <a href={explorerUrl('object', listingId)} target="_blank" rel="noreferrer"
-          className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm py-2 px-3 rounded-lg transition-colors">
-          View
-        </a>
-      </div>
-
-      {/* Status */}
-      {status && (
-        <p className={`text-xs mt-3 ${status.includes('failed') || status.includes('Error') ? 'text-red-400' : 'text-gray-400'}`}>
-          {status}
-        </p>
-      )}
-
-      {/* Decrypted Content */}
-      {decryptedContent && (
-        <div className="mt-4 bg-[#0a0f1e] rounded-lg p-4 border border-gray-700">
-          <h4 className="text-green-400 text-xs font-medium mb-2">Decrypted Content:</h4>
-          <pre className="text-gray-300 text-xs whitespace-pre-wrap font-mono leading-relaxed">
-            {decryptedContent}
-          </pre>
         </div>
-      )}
+        <IntelViewer content={decryptedContent} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-xl overflow-hidden border ${theme.border} bg-[#111827] hover:scale-[1.02] hover:shadow-lg ${theme.glow} transition-all duration-200 group`}>
+      {/* Gradient Banner */}
+      <div className={`bg-gradient-to-r ${theme.gradient} p-4 flex items-center justify-between`}>
+        <span className="text-2xl">{theme.icon}</span>
+        <span className="text-xs font-bold text-white/80 uppercase tracking-wider">{theme.label}</span>
+      </div>
+
+      {/* Content */}
+      <div className="p-5">
+        <h3 className="text-white font-semibold text-sm leading-tight mb-2 line-clamp-2">{title}</h3>
+        <p className="text-gray-500 text-xs mb-4 line-clamp-2">{description}</p>
+
+        {/* Meta badges */}
+        <div className="flex items-center gap-3 text-xs text-gray-500 mb-4">
+          <span>{'\u{1F465}'} {fields.buyers.length} unlocked</span>
+          {fields.created_at && <span>{'\u{23F1}'} {getTimeAgo(fields.created_at)}</span>}
+        </div>
+
+        {/* Price + Action */}
+        <div className="flex items-center gap-2">
+          <div className="bg-gray-800 rounded-lg px-3 py-1.5 text-white font-semibold text-sm">
+            {formatSUI(fields.price)} SUI
+          </div>
+
+          {!hasAccess && account && (
+            <button
+              onClick={handlePurchase}
+              disabled={purchasing || !fields.is_active}
+              className={`flex-1 bg-gradient-to-r ${theme.gradient} hover:opacity-90 disabled:opacity-50 text-white text-sm font-medium py-1.5 px-4 rounded-lg transition-all flex items-center justify-center gap-1.5`}
+            >
+              {purchasing ? (
+                <span className="animate-pulse">Processing...</span>
+              ) : (
+                <>{'\u{1F510}'} Unlock Intelligence</>
+              )}
+            </button>
+          )}
+
+          {hasAccess && blobId && !decryptedContent && (
+            <button
+              onClick={handleDecrypt}
+              disabled={decrypting}
+              className="flex-1 bg-gradient-to-r from-green-500 to-emerald-500 hover:opacity-90 disabled:opacity-50 text-white text-sm font-medium py-1.5 px-4 rounded-lg transition-all flex items-center justify-center gap-1.5"
+            >
+              {decrypting ? (
+                <span className="animate-pulse">Decrypting...</span>
+              ) : (
+                <>{'\u{1F513}'} Decrypt & Read</>
+              )}
+            </button>
+          )}
+
+          {hasAccess && blobId && decryptedContent && !showDecrypted && (
+            <button
+              onClick={() => setShowDecrypted(true)}
+              className="flex-1 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-sm font-medium py-1.5 px-4 rounded-lg flex items-center justify-center gap-1.5"
+            >
+              {'\u{1F513}'} View Content
+            </button>
+          )}
+        </div>
+
+        {/* Status */}
+        {status && (
+          <p className={`text-xs mt-3 ${status.includes('failed') || status.includes('Error') ? 'text-red-400' : 'text-gray-400'}`}>
+            {status}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

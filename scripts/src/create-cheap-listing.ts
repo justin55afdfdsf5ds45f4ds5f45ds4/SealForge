@@ -18,6 +18,7 @@ async function main() {
       createTx.object(marketplaceId),
       createTx.pure.vector('u8', Array.from(new TextEncoder().encode('Getting Started with Sui Move - Starter Guide'))),
       createTx.pure.vector('u8', Array.from(new TextEncoder().encode('A beginner-friendly guide to Sui Move smart contracts. Only 0.001 SUI!'))),
+      createTx.pure.vector('u8', Array.from(new TextEncoder().encode('purple-deep'))),
       createTx.pure.u64(price),
       createTx.object('0x6'),
     ],

@@ -111,6 +111,7 @@ async function main() {
         createTx.object(marketplaceId),
         createTx.pure.vector('u8', Array.from(new TextEncoder().encode(testTitle))),
         createTx.pure.vector('u8', Array.from(new TextEncoder().encode(testDesc))),
+        createTx.pure.vector('u8', Array.from(new TextEncoder().encode('blue-data'))),
         createTx.pure.u64(100_000_000n),
         createTx.object('0x6'),
       ],

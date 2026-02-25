@@ -1,15 +1,18 @@
 import { useSuiClientQuery } from '@mysten/dapp-kit';
 import { MARKETPLACE_ID, explorerUrl } from '../config';
+import { getTheme } from '../themes';
 
 interface ListingFields {
   creator: string;
   title: number[];
   description: number[];
+  thumbnail_url: number[];
   price: string;
   walrus_blob_id: number[];
   buyers: string[];
   total_revenue: string;
   is_active: boolean;
+  created_at: string;
 }
 
 function decodeBytes(bytes: number[]): string {
@@ -33,12 +36,13 @@ export default function ContentLibrary() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white">Content Library</h2>
-        <p className="text-gray-400 mt-1">{listingIds.length} listings on the marketplace</p>
+        <p className="text-gray-400 mt-1">{listingIds.length} intelligence packages on the marketplace</p>
       </div>
 
       {listingIds.length === 0 ? (
         <div className="bg-[#111827] rounded-xl p-12 border border-gray-800 text-center">
-          <p className="text-gray-500">No listings yet. The agent will create content soon.</p>
+          <div className="text-4xl mb-3">{'\u{1F4DA}'}</div>
+          <p className="text-gray-400">No listings yet. The agent will create content soon.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -59,9 +63,12 @@ function ListingCard({ listingId }: { listingId: string }) {
 
   if (isLoading) {
     return (
-      <div className="bg-[#111827] rounded-xl p-5 border border-gray-800 animate-pulse">
-        <div className="h-4 bg-gray-700 rounded w-3/4 mb-3"></div>
-        <div className="h-3 bg-gray-700 rounded w-1/2"></div>
+      <div className="rounded-xl overflow-hidden border border-gray-800 bg-[#111827]">
+        <div className="h-14 animate-shimmer" />
+        <div className="p-5 space-y-3">
+          <div className="h-4 bg-gray-800 rounded animate-shimmer w-3/4" />
+          <div className="h-3 bg-gray-800 rounded animate-shimmer w-full" />
+        </div>
       </div>
     );
   }
@@ -71,36 +78,36 @@ function ListingCard({ listingId }: { listingId: string }) {
 
   const title = decodeBytes(fields.title);
   const description = decodeBytes(fields.description);
-  const blobId = fields.walrus_blob_id.length > 0 ? decodeBytes(fields.walrus_blob_id) : null;
+  const themeName = fields.thumbnail_url?.length > 0 ? decodeBytes(fields.thumbnail_url) : 'blue-data';
+  const theme = getTheme(themeName);
   const buyerCount = fields.buyers.length;
-  const revenue = formatSUI(fields.total_revenue);
 
   return (
-    <div className="bg-[#111827] rounded-xl p-5 border border-gray-800 hover:border-gray-700 transition-colors">
-      <div className="flex items-start justify-between mb-3">
-        <h3 className="text-white font-semibold text-sm leading-tight">{title}</h3>
-        <span className={`text-xs px-2 py-0.5 rounded ${fields.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-600/20 text-gray-400'}`}>
-          {fields.is_active ? 'Active' : 'Inactive'}
-        </span>
+    <div className={`rounded-xl overflow-hidden border ${theme.border} bg-[#111827] hover:scale-[1.02] transition-all duration-200`}>
+      {/* Gradient Banner */}
+      <div className={`bg-gradient-to-r ${theme.gradient} p-3 flex items-center justify-between`}>
+        <span className="text-xl">{theme.icon}</span>
+        <span className="text-xs font-bold text-white/80 uppercase tracking-wider">{theme.label}</span>
       </div>
-      <p className="text-gray-500 text-xs mb-4 line-clamp-2">{description}</p>
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-blue-400 font-medium">{formatSUI(fields.price)} SUI</span>
-        <span className="text-gray-500">{buyerCount} buyer{buyerCount !== 1 ? 's' : ''}</span>
-      </div>
-      <div className="flex items-center justify-between text-xs mt-2">
-        <span className="text-gray-500">Revenue: {revenue} SUI</span>
-        {blobId && (
-          <span className="text-gray-600 font-mono text-[10px]" title={blobId}>
-            blob:{blobId.slice(0, 8)}...
+
+      <div className="p-5">
+        <h3 className="text-white font-semibold text-sm leading-tight mb-2 line-clamp-2">{title}</h3>
+        <p className="text-gray-500 text-xs mb-4 line-clamp-2">{description}</p>
+
+        <div className="flex items-center justify-between text-xs">
+          <span className={`font-semibold ${theme.accent}`}>{formatSUI(fields.price)} SUI</span>
+          <span className="text-gray-500">{'\u{1F465}'} {buyerCount} unlocked</span>
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between">
+          <span className="text-xs text-gray-600">
+            Revenue: {formatSUI(fields.total_revenue)} SUI
           </span>
-        )}
-      </div>
-      <div className="mt-3 pt-3 border-t border-gray-800">
-        <a href={explorerUrl('object', listingId)} target="_blank" rel="noreferrer"
-          className="text-blue-400 hover:text-blue-300 text-xs">
-          View on SuiScan
-        </a>
+          <a href={explorerUrl('object', listingId)} target="_blank" rel="noreferrer"
+            className="text-blue-400 hover:text-blue-300 text-xs">
+            SuiScan {'\u{2192}'}
+          </a>
+        </div>
       </div>
     </div>
   );
