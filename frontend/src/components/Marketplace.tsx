@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSuiClientQuery, useSignAndExecuteTransaction, useSignPersonalMessage, useSuiClient } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { fromHex } from '@mysten/sui/utils';
@@ -39,7 +39,22 @@ function getTimeAgo(ms: string): string {
   return `${days}d ago`;
 }
 
+type ModalPhase = 'downloading' | 'signing' | 'decrypting' | 'revealing' | 'done';
+
+interface ModalState {
+  listingId: string;
+  title: string;
+  themeName: string;
+  phase: ModalPhase;
+  content: string;
+  error: string;
+}
+
 export default function Marketplace({ account }: { account: WalletAccount | null }) {
+  const suiClient = useSuiClient();
+  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
+  const [modal, setModal] = useState<ModalState | null>(null);
+
   const { data: marketplaceObj } = useSuiClientQuery('getObject', {
     id: MARKETPLACE_ID,
     options: { showContent: true },
@@ -48,11 +63,88 @@ export default function Marketplace({ account }: { account: WalletAccount | null
   const fields = (marketplaceObj?.data?.content as any)?.fields;
   const allListingIds: string[] = fields?.listings ?? [];
 
-  // Fix 2: Filter out duplicates and test listings
-  // Fix 4: Reverse so premium AI-generated listings (created later) appear first
+  // Filter hidden listings, reverse so premium (created later) appear first
   const listingIds = allListingIds
     .filter(id => !HIDDEN_LISTING_IDS.includes(id))
     .reverse();
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (modal) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [modal]);
+
+  function closeModal() {
+    setModal(null);
+  }
+
+  async function handleDecrypt(listingId: string, blobId: string, title: string, themeName: string) {
+    if (!account) return;
+
+    setModal({ listingId, title, themeName, phase: 'downloading', content: '', error: '' });
+
+    try {
+      const resp = await fetch(`${WALRUS_AGGREGATOR}/v1/blobs/${blobId}`);
+      if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+      const encryptedData = new Uint8Array(await resp.arrayBuffer());
+
+      const parsed = EncryptedObject.parse(encryptedData);
+      const idRawBytes = fromHex(parsed.id);
+
+      setModal(m => m ? { ...m, phase: 'signing' } : m);
+      const sessionKey = await SessionKey.create({
+        address: account.address,
+        packageId: PACKAGE_ID,
+        ttlMin: 10,
+        suiClient: suiClient as any,
+      });
+
+      const personalMessage = sessionKey.getPersonalMessage();
+      const { signature } = await signPersonalMessage({ message: personalMessage });
+      await sessionKey.setPersonalMessageSignature(signature);
+
+      const sealClient = new SealClient({
+        suiClient: suiClient as any,
+        serverConfigs: SEAL_KEY_SERVERS.map((id) => ({ objectId: id, weight: 1 })),
+        verifyKeyServers: false,
+      });
+
+      setModal(m => m ? { ...m, phase: 'decrypting' } : m);
+      const approveTx = new Transaction();
+      approveTx.moveCall({
+        target: `${PACKAGE_ID}::content_marketplace::seal_approve`,
+        arguments: [
+          approveTx.pure.vector('u8', Array.from(idRawBytes)),
+          approveTx.object(listingId),
+        ],
+      });
+      const txBytes = await approveTx.build({ client: suiClient, onlyTransactionKind: true });
+
+      const decrypted = await sealClient.decrypt({
+        data: encryptedData,
+        sessionKey,
+        txBytes,
+      });
+
+      const content = new TextDecoder().decode(decrypted);
+
+      // Reveal animation
+      setModal(m => m ? { ...m, phase: 'revealing' } : m);
+      await new Promise(r => setTimeout(r, 1500));
+
+      setModal(m => m ? { ...m, phase: 'done', content } : m);
+    } catch (err: any) {
+      setModal(m => m ? { ...m, error: err.message } : m);
+      // Show error briefly then close
+      setTimeout(() => setModal(null), 3000);
+    }
+  }
+
+  const modalTheme = modal ? getTheme(modal.themeName) : null;
 
   return (
     <div className="space-y-6">
@@ -87,25 +179,125 @@ export default function Marketplace({ account }: { account: WalletAccount | null
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {listingIds.map((id) => (
-            <MarketplaceCard key={id} listingId={id} account={account} />
+            <MarketplaceCard
+              key={id}
+              listingId={id}
+              account={account}
+              onDecrypt={handleDecrypt}
+            />
           ))}
+        </div>
+      )}
+
+      {/* ══════════ FULL-SCREEN MODAL ══════════ */}
+      {modal && (
+        <div className="fixed inset-0 z-50 flex flex-col">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/90 backdrop-blur-sm"
+            onClick={modal.phase === 'done' ? closeModal : undefined}
+          />
+
+          {/* Error state */}
+          {modal.error && (
+            <div className="absolute inset-0 flex items-center justify-center z-10">
+              <div className="text-center">
+                <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-red-500/20 flex items-center justify-center">
+                  <span className="text-4xl">{'\u{274C}'}</span>
+                </div>
+                <p className="text-red-400 text-lg font-medium">Decrypt Failed</p>
+                <p className="text-gray-500 text-sm mt-2 max-w-md">{modal.error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Downloading / Signing / Decrypting animation */}
+          {!modal.error && (modal.phase === 'downloading' || modal.phase === 'signing' || modal.phase === 'decrypting') && (
+            <div className="absolute inset-0 flex items-center justify-center z-10">
+              <div className="text-center">
+                <div className="relative w-24 h-24 mx-auto mb-6">
+                  <div className="absolute inset-0 rounded-full border-4 border-gray-700" />
+                  <div
+                    className="absolute inset-0 rounded-full border-4 border-t-transparent animate-spin"
+                    style={{ borderColor: `${modalTheme?.gradientFrom || '#3b82f6'} transparent transparent transparent` }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-4xl">{'\u{1F510}'}</span>
+                  </div>
+                </div>
+                <p className="text-gray-300 text-lg font-medium">
+                  {modal.phase === 'downloading' && 'Downloading from Walrus...'}
+                  {modal.phase === 'signing' && 'Sign in your wallet...'}
+                  {modal.phase === 'decrypting' && 'Seal decrypting...'}
+                </p>
+                <p className="text-gray-600 text-sm mt-2">Verifying on-chain access</p>
+              </div>
+            </div>
+          )}
+
+          {/* Reveal animation */}
+          {!modal.error && modal.phase === 'revealing' && (
+            <div className="absolute inset-0 flex items-center justify-center z-10">
+              <div className="text-center">
+                <div
+                  className="w-24 h-24 mx-auto mb-6 rounded-full flex items-center justify-center animate-pulse-glow"
+                  style={{
+                    backgroundColor: `${modalTheme?.gradientFrom || '#22c55e'}30`,
+                    boxShadow: `0 0 80px ${modalTheme?.gradientFrom || '#22c55e'}40`,
+                  }}
+                >
+                  <span className="text-4xl">{'\u{1F513}'}</span>
+                </div>
+                <p className="text-white text-xl font-bold">Intelligence Unlocked</p>
+                <p className="text-gray-500 text-sm mt-2">{modalTheme?.icon} {modalTheme?.label}</p>
+              </div>
+            </div>
+          )}
+
+          {/* IntelViewer content */}
+          {!modal.error && modal.phase === 'done' && modal.content && (
+            <div className="relative z-10 flex flex-col h-full animate-fade-in-up">
+              {/* Sticky header */}
+              <div className="flex-shrink-0 flex items-center justify-between px-6 py-3 bg-gray-900/95 border-b border-gray-700/50 backdrop-blur-sm">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xl flex-shrink-0">{modalTheme?.icon}</span>
+                  <h2 className="text-white font-bold text-lg truncate">{modal.title}</h2>
+                </div>
+                <button
+                  onClick={closeModal}
+                  className="w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 flex items-center justify-center text-gray-400 hover:text-white transition-colors text-xl flex-shrink-0 ml-4"
+                >
+                  {'\u{2715}'}
+                </button>
+              </div>
+
+              {/* Scrollable content */}
+              <div className="flex-1 overflow-y-auto">
+                <div className="max-w-4xl mx-auto px-6 py-8">
+                  <IntelViewer content={modal.content} />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-type DecryptPhase = 'idle' | 'downloading' | 'signing' | 'decrypting' | 'revealing' | 'done';
+// ══════════ MARKETPLACE CARD ══════════
 
-function MarketplaceCard({ listingId, account }: { listingId: string; account: WalletAccount | null }) {
+interface CardProps {
+  listingId: string;
+  account: WalletAccount | null;
+  onDecrypt: (listingId: string, blobId: string, title: string, themeName: string) => void;
+}
+
+function MarketplaceCard({ listingId, account, onDecrypt }: CardProps) {
   const suiClient = useSuiClient();
   const { mutate: signAndExecute } = useSignAndExecuteTransaction();
-  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
   const [status, setStatus] = useState<string>('');
-  const [decryptedContent, setDecryptedContent] = useState<string>('');
   const [purchasing, setPurchasing] = useState(false);
-  const [decryptPhase, setDecryptPhase] = useState<DecryptPhase>('idle');
-  const [showDecrypted, setShowDecrypted] = useState(false);
 
   const { data, refetch } = useSuiClientQuery('getObject', {
     id: listingId,
@@ -174,129 +366,6 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
     }
   }
 
-  async function handleDecrypt() {
-    if (!account || !blobId) return;
-    setDecryptPhase('downloading');
-    setStatus('');
-    try {
-      const resp = await fetch(`${WALRUS_AGGREGATOR}/v1/blobs/${blobId}`);
-      if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
-      const encryptedData = new Uint8Array(await resp.arrayBuffer());
-
-      const parsed = EncryptedObject.parse(encryptedData);
-      const idRawBytes = fromHex(parsed.id);
-
-      setDecryptPhase('signing');
-      const sessionKey = await SessionKey.create({
-        address: account.address,
-        packageId: PACKAGE_ID,
-        ttlMin: 10,
-        suiClient: suiClient as any,
-      });
-
-      const personalMessage = sessionKey.getPersonalMessage();
-      const { signature } = await signPersonalMessage({ message: personalMessage });
-      await sessionKey.setPersonalMessageSignature(signature);
-
-      const sealClient = new SealClient({
-        suiClient: suiClient as any,
-        serverConfigs: SEAL_KEY_SERVERS.map((id) => ({ objectId: id, weight: 1 })),
-        verifyKeyServers: false,
-      });
-
-      setDecryptPhase('decrypting');
-      const approveTx = new Transaction();
-      approveTx.moveCall({
-        target: `${PACKAGE_ID}::content_marketplace::seal_approve`,
-        arguments: [
-          approveTx.pure.vector('u8', Array.from(idRawBytes)),
-          approveTx.object(listingId),
-        ],
-      });
-      const txBytes = await approveTx.build({ client: suiClient, onlyTransactionKind: true });
-
-      const decrypted = await sealClient.decrypt({
-        data: encryptedData,
-        sessionKey,
-        txBytes,
-      });
-
-      setDecryptedContent(new TextDecoder().decode(decrypted));
-
-      // Play reveal animation
-      setDecryptPhase('revealing');
-      await new Promise(r => setTimeout(r, 1500));
-
-      setDecryptPhase('done');
-      setShowDecrypted(true);
-    } catch (err: any) {
-      setStatus(`Decrypt failed: ${err.message}`);
-      setDecryptPhase('idle');
-    }
-  }
-
-  // Decrypt-in-progress overlay (downloading / signing / decrypting)
-  if (decryptPhase === 'downloading' || decryptPhase === 'signing' || decryptPhase === 'decrypting') {
-    const phaseMsg: Record<string, string> = {
-      downloading: 'Downloading from Walrus...',
-      signing: 'Sign in your wallet...',
-      decrypting: 'Seal decrypting...',
-    };
-    return (
-      <div className={`rounded-xl overflow-hidden border ${theme.border} bg-[#111827] flex flex-col items-center justify-center py-16`}>
-        <div className="relative w-20 h-20 mb-4">
-          <div className="absolute inset-0 rounded-full border-4 border-gray-700" />
-          <div
-            className="absolute inset-0 rounded-full border-4 border-t-transparent animate-spin"
-            style={{ borderColor: `${theme.gradientFrom} transparent transparent transparent` }}
-          />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-3xl">{'\u{1F510}'}</span>
-          </div>
-        </div>
-        <p className="text-gray-400 text-sm font-medium">{phaseMsg[decryptPhase]}</p>
-        <p className="text-gray-600 text-xs mt-1">{title}</p>
-      </div>
-    );
-  }
-
-  // Reveal animation — "Intelligence Unlocked"
-  if (decryptPhase === 'revealing') {
-    return (
-      <div className={`rounded-xl overflow-hidden border ${theme.border} bg-[#111827] flex flex-col items-center justify-center py-16`}>
-        <div
-          className="w-20 h-20 rounded-full flex items-center justify-center mb-4 animate-pulse-glow"
-          style={{
-            backgroundColor: `${theme.gradientFrom}30`,
-            boxShadow: `0 0 60px ${theme.gradientFrom}40`,
-          }}
-        >
-          <span className="text-3xl">{'\u{1F513}'}</span>
-        </div>
-        <p className="text-white font-bold text-lg">Intelligence Unlocked</p>
-        <p className="text-gray-500 text-xs mt-1">{theme.icon} {theme.label}</p>
-      </div>
-    );
-  }
-
-  // Full IntelViewer rendering
-  if (showDecrypted && decryptedContent) {
-    return (
-      <div className="col-span-full animate-vault-crack">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className={`text-lg font-bold ${theme.accent}`}>{theme.icon} {title}</h3>
-          <button
-            onClick={() => setShowDecrypted(false)}
-            className="text-sm text-gray-500 hover:text-white px-3 py-1 rounded-lg bg-gray-800 transition-colors"
-          >
-            Close
-          </button>
-        </div>
-        <IntelViewer content={decryptedContent} />
-      </div>
-    );
-  }
-
   return (
     <div className={`rounded-xl overflow-hidden border ${theme.border} bg-[#111827] hover:scale-[1.02] hover:shadow-lg ${theme.glow} transition-all duration-200 group`}>
       {/* Gradient Banner */}
@@ -336,22 +405,12 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
             </button>
           )}
 
-          {hasAccess && blobId && !decryptedContent && (
+          {hasAccess && blobId && (
             <button
-              onClick={handleDecrypt}
-              disabled={decryptPhase !== 'idle'}
-              className="flex-1 bg-gradient-to-r from-green-500 to-emerald-500 hover:opacity-90 disabled:opacity-50 text-white text-sm font-medium py-1.5 px-4 rounded-lg transition-all flex items-center justify-center gap-1.5"
+              onClick={() => onDecrypt(listingId, blobId, title, themeName)}
+              className="flex-1 bg-gradient-to-r from-green-500 to-emerald-500 hover:opacity-90 text-white text-sm font-medium py-1.5 px-4 rounded-lg transition-all flex items-center justify-center gap-1.5"
             >
               {'\u{1F513}'} Decrypt & Read
-            </button>
-          )}
-
-          {hasAccess && blobId && decryptedContent && !showDecrypted && (
-            <button
-              onClick={() => setShowDecrypted(true)}
-              className="flex-1 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-sm font-medium py-1.5 px-4 rounded-lg flex items-center justify-center gap-1.5"
-            >
-              {'\u{1F513}'} View Content
             </button>
           )}
         </div>

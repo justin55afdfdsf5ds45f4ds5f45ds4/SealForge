@@ -1,5 +1,5 @@
 import { useSuiClientQuery } from '@mysten/dapp-kit';
-import { MARKETPLACE_ID, explorerUrl } from '../config';
+import { MARKETPLACE_ID, HIDDEN_LISTING_IDS, explorerUrl } from '../config';
 import { getTheme } from '../themes';
 
 interface ListingFields {
@@ -30,7 +30,12 @@ export default function ContentLibrary() {
   });
 
   const fields = (marketplaceObj?.data?.content as any)?.fields;
-  const listingIds: string[] = fields?.listings ?? [];
+  const allListingIds: string[] = fields?.listings ?? [];
+
+  // Filter hidden listings, reverse so premium appear first
+  const listingIds = allListingIds
+    .filter(id => !HIDDEN_LISTING_IDS.includes(id))
+    .reverse();
 
   return (
     <div className="space-y-6">
