@@ -3,7 +3,7 @@ import { useSuiClientQuery, useSignAndExecuteTransaction, useSignPersonalMessage
 import { Transaction } from '@mysten/sui/transactions';
 import { fromHex } from '@mysten/sui/utils';
 import { SealClient, SessionKey, EncryptedObject } from '@mysten/seal';
-import { PACKAGE_ID, MARKETPLACE_ID, SEAL_KEY_SERVERS, WALRUS_AGGREGATOR } from '../config';
+import { PACKAGE_ID, MARKETPLACE_ID, SEAL_KEY_SERVERS, WALRUS_AGGREGATOR, HIDDEN_LISTING_IDS } from '../config';
 import { getTheme } from '../themes';
 import IntelViewer from './IntelViewer';
 import type { WalletAccount } from '@mysten/wallet-standard';
@@ -46,7 +46,13 @@ export default function Marketplace({ account }: { account: WalletAccount | null
   });
 
   const fields = (marketplaceObj?.data?.content as any)?.fields;
-  const listingIds: string[] = fields?.listings ?? [];
+  const allListingIds: string[] = fields?.listings ?? [];
+
+  // Fix 2: Filter out duplicates and test listings
+  // Fix 4: Reverse so premium AI-generated listings (created later) appear first
+  const listingIds = allListingIds
+    .filter(id => !HIDDEN_LISTING_IDS.includes(id))
+    .reverse();
 
   return (
     <div className="space-y-6">
@@ -89,6 +95,8 @@ export default function Marketplace({ account }: { account: WalletAccount | null
   );
 }
 
+type DecryptPhase = 'idle' | 'downloading' | 'signing' | 'decrypting' | 'revealing' | 'done';
+
 function MarketplaceCard({ listingId, account }: { listingId: string; account: WalletAccount | null }) {
   const suiClient = useSuiClient();
   const { mutate: signAndExecute } = useSignAndExecuteTransaction();
@@ -96,7 +104,7 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
   const [status, setStatus] = useState<string>('');
   const [decryptedContent, setDecryptedContent] = useState<string>('');
   const [purchasing, setPurchasing] = useState(false);
-  const [decrypting, setDecrypting] = useState(false);
+  const [decryptPhase, setDecryptPhase] = useState<DecryptPhase>('idle');
   const [showDecrypted, setShowDecrypted] = useState(false);
 
   const { data, refetch } = useSuiClientQuery('getObject', {
@@ -168,8 +176,8 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
 
   async function handleDecrypt() {
     if (!account || !blobId) return;
-    setDecrypting(true);
-    setStatus('Downloading from Walrus...');
+    setDecryptPhase('downloading');
+    setStatus('');
     try {
       const resp = await fetch(`${WALRUS_AGGREGATOR}/v1/blobs/${blobId}`);
       if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
@@ -178,7 +186,7 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
       const parsed = EncryptedObject.parse(encryptedData);
       const idRawBytes = fromHex(parsed.id);
 
-      setStatus('Creating session key...');
+      setDecryptPhase('signing');
       const sessionKey = await SessionKey.create({
         address: account.address,
         packageId: PACKAGE_ID,
@@ -186,7 +194,6 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
         suiClient: suiClient as any,
       });
 
-      setStatus('Please sign in your wallet...');
       const personalMessage = sessionKey.getPersonalMessage();
       const { signature } = await signPersonalMessage({ message: personalMessage });
       await sessionKey.setPersonalMessageSignature(signature);
@@ -197,7 +204,7 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
         verifyKeyServers: false,
       });
 
-      setStatus('Decrypting...');
+      setDecryptPhase('decrypting');
       const approveTx = new Transaction();
       approveTx.moveCall({
         target: `${PACKAGE_ID}::content_marketplace::seal_approve`,
@@ -215,24 +222,71 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
       });
 
       setDecryptedContent(new TextDecoder().decode(decrypted));
-      setStatus('');
-      // Trigger vault-crack animation
-      setTimeout(() => setShowDecrypted(true), 100);
+
+      // Play reveal animation
+      setDecryptPhase('revealing');
+      await new Promise(r => setTimeout(r, 1500));
+
+      setDecryptPhase('done');
+      setShowDecrypted(true);
     } catch (err: any) {
       setStatus(`Decrypt failed: ${err.message}`);
-    } finally {
-      setDecrypting(false);
+      setDecryptPhase('idle');
     }
   }
 
-  // If decrypted content is showing, render full IntelViewer
+  // Decrypt-in-progress overlay (downloading / signing / decrypting)
+  if (decryptPhase === 'downloading' || decryptPhase === 'signing' || decryptPhase === 'decrypting') {
+    const phaseMsg: Record<string, string> = {
+      downloading: 'Downloading from Walrus...',
+      signing: 'Sign in your wallet...',
+      decrypting: 'Seal decrypting...',
+    };
+    return (
+      <div className={`rounded-xl overflow-hidden border ${theme.border} bg-[#111827] flex flex-col items-center justify-center py-16`}>
+        <div className="relative w-20 h-20 mb-4">
+          <div className="absolute inset-0 rounded-full border-4 border-gray-700" />
+          <div
+            className="absolute inset-0 rounded-full border-4 border-t-transparent animate-spin"
+            style={{ borderColor: `${theme.gradientFrom} transparent transparent transparent` }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-3xl">{'\u{1F510}'}</span>
+          </div>
+        </div>
+        <p className="text-gray-400 text-sm font-medium">{phaseMsg[decryptPhase]}</p>
+        <p className="text-gray-600 text-xs mt-1">{title}</p>
+      </div>
+    );
+  }
+
+  // Reveal animation — "Intelligence Unlocked"
+  if (decryptPhase === 'revealing') {
+    return (
+      <div className={`rounded-xl overflow-hidden border ${theme.border} bg-[#111827] flex flex-col items-center justify-center py-16`}>
+        <div
+          className="w-20 h-20 rounded-full flex items-center justify-center mb-4 animate-pulse-glow"
+          style={{
+            backgroundColor: `${theme.gradientFrom}30`,
+            boxShadow: `0 0 60px ${theme.gradientFrom}40`,
+          }}
+        >
+          <span className="text-3xl">{'\u{1F513}'}</span>
+        </div>
+        <p className="text-white font-bold text-lg">Intelligence Unlocked</p>
+        <p className="text-gray-500 text-xs mt-1">{theme.icon} {theme.label}</p>
+      </div>
+    );
+  }
+
+  // Full IntelViewer rendering
   if (showDecrypted && decryptedContent) {
     return (
       <div className="col-span-full animate-vault-crack">
         <div className="mb-4 flex items-center justify-between">
           <h3 className={`text-lg font-bold ${theme.accent}`}>{theme.icon} {title}</h3>
           <button
-            onClick={() => { setShowDecrypted(false); setDecryptedContent(''); }}
+            onClick={() => setShowDecrypted(false)}
             className="text-sm text-gray-500 hover:text-white px-3 py-1 rounded-lg bg-gray-800 transition-colors"
           >
             Close
@@ -285,14 +339,10 @@ function MarketplaceCard({ listingId, account }: { listingId: string; account: W
           {hasAccess && blobId && !decryptedContent && (
             <button
               onClick={handleDecrypt}
-              disabled={decrypting}
+              disabled={decryptPhase !== 'idle'}
               className="flex-1 bg-gradient-to-r from-green-500 to-emerald-500 hover:opacity-90 disabled:opacity-50 text-white text-sm font-medium py-1.5 px-4 rounded-lg transition-all flex items-center justify-center gap-1.5"
             >
-              {decrypting ? (
-                <span className="animate-pulse">Decrypting...</span>
-              ) : (
-                <>{'\u{1F513}'} Decrypt & Read</>
-              )}
+              {'\u{1F513}'} Decrypt & Read
             </button>
           )}
 

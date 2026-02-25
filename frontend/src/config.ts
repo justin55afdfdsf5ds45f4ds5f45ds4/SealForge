@@ -13,6 +13,14 @@ export const SEAL_KEY_SERVERS = [
 
 export const WALRUS_AGGREGATOR = 'https://aggregator.walrus-testnet.walrus.space';
 
+// Listings to hide from marketplace (duplicates + test reports)
+export const HIDDEN_LISTING_IDS: string[] = [
+  '0x40f00773a16034029c08391f37eff3b58ead96fe4b6553d89e85c58a5daef645', // Pipeline Test #1
+  '0xdcfb0cd27c1776ac2ccd90135072de05c324cd4754787a27b7736391d7382e4a', // Pipeline Test #2
+  '0x4969218e3d459a272e4b6907c366777f0686ff166bac13a58c59753820114e72', // Duplicate: Sui DeFi Capital Rotation
+  '0x30c8d19cfc64495c39e27c8b897a72da1ed93e637dac61a6ebfb2fdd1e71f402', // Duplicate: Trending Crypto Momentum
+];
+
 export const SUI_EXPLORER = 'https://suiscan.xyz/testnet';
 export function explorerUrl(type: 'object' | 'tx' | 'account', id: string): string {
   return `${SUI_EXPLORER}/${type}/${id}`;
