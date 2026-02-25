@@ -1,4 +1,4 @@
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
+import { SuiJsonRpcClient as SuiClient } from '@mysten/sui/jsonRpc';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { SealClient, SessionKey } from '@mysten/seal';
 import { readFileSync, existsSync, writeFileSync } from 'fs';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 // NETWORK CONFIG
 // ============================================================
 export const NETWORK = 'testnet' as const;
-export const SUI_RPC_URL = getFullnodeUrl(NETWORK);
+export const SUI_RPC_URL = 'https://fullnode.testnet.sui.io:443';
 
 // ============================================================
 // PATHS
