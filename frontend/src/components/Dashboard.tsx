@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSuiClientQuery } from '@mysten/dapp-kit';
-import { MARKETPLACE_ID, TREASURY_ID, AGENT_ADDRESS, PACKAGE_ID, explorerUrl } from '../config';
+import { useSuiClientQuery, useSuiClient } from '@mysten/dapp-kit';
+import { MARKETPLACE_ID, AGENT_ADDRESS, PACKAGE_ID, TREASURY_ID, explorerUrl } from '../config';
 
 interface ActivityEntry {
   timestamp: string;
@@ -38,26 +38,63 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string 
 }
 
 function formatSUI(mist: string | number): string {
-  return (Number(mist) / 1_000_000_000).toFixed(4);
+  const sui = Number(mist) / 1_000_000_000;
+  if (sui === 0) return '0';
+  if (sui >= 0.01) return sui.toFixed(4);
+  return sui.toFixed(9).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 export default function Dashboard() {
+  const suiClient = useSuiClient();
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  // Live event-based P&L
+  const [liveEarned, setLiveEarned] = useState(0);
+  const [liveSales, setLiveSales] = useState(0);
+  const [liveContentCreated, setLiveContentCreated] = useState(0);
+  const [eventsLoading, setEventsLoading] = useState(true);
 
   const { data: marketplaceObj, isLoading } = useSuiClientQuery('getObject', {
     id: MARKETPLACE_ID,
     options: { showContent: true },
   });
 
-  const { data: treasuryObj, isLoading: treasuryLoading } = useSuiClientQuery('getObject', {
-    id: TREASURY_ID,
-    options: { showContent: true },
-  });
-
   const { data: balanceData, isLoading: balanceLoading } = useSuiClientQuery('getBalance', {
     owner: AGENT_ADDRESS,
   });
+
+  // Query on-chain events for live P&L
+  useEffect(() => {
+    async function fetchEvents() {
+      try {
+        const [purchaseEvents, listingEvents] = await Promise.all([
+          suiClient.queryEvents({
+            query: { MoveEventType: `${PACKAGE_ID}::content_marketplace::ContentPurchased` },
+            limit: 50,
+          }),
+          suiClient.queryEvents({
+            query: { MoveEventType: `${PACKAGE_ID}::content_marketplace::ListingCreated` },
+            limit: 50,
+          }),
+        ]);
+
+        const totalEarned = purchaseEvents.data.reduce((sum, evt) => {
+          const parsed = evt.parsedJson as any;
+          return sum + Number(parsed?.price ?? 0);
+        }, 0);
+
+        setLiveEarned(totalEarned);
+        setLiveSales(purchaseEvents.data.length);
+        setLiveContentCreated(listingEvents.data.length);
+      } catch (err) {
+        console.error('Failed to fetch events:', err);
+      } finally {
+        setEventsLoading(false);
+      }
+    }
+    fetchEvents();
+  }, [suiClient]);
 
   // Load activity log
   useEffect(() => {
@@ -75,15 +112,11 @@ export default function Dashboard() {
   const totalListings = fields?.total_listings ?? '—';
   const totalSales = fields?.total_sales ?? '—';
 
-  const tFields = (treasuryObj?.data?.content as any)?.fields;
-  const totalEarned = tFields?.total_earned ?? '0';
-  const totalSpent = tFields?.total_spent ?? '0';
-  const contentCreated = tFields?.total_content_created ?? '0';
-  const treasurySales = tFields?.total_sales ?? '0';
-  const agentBalance = balanceData?.totalBalance ?? '0';
-
-  const netProfit = Number(totalEarned) - Number(totalSpent);
+  // Estimate gas spending (~0.01 SUI per listing for create + blob update)
+  const estimatedGas = liveContentCreated * 10_000_000;
+  const netProfit = liveEarned - estimatedGas;
   const isProfitable = netProfit > 0;
+  const agentBalance = balanceData?.totalBalance ?? '0';
 
   return (
     <div className="space-y-6">
@@ -135,24 +168,24 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard
             label="Net P&L"
-            value={treasuryLoading ? '...' : `${netProfit > 0 ? '+' : ''}${formatSUI(netProfit)} SUI`}
-            sub={isProfitable ? 'PROFITABLE' : 'Building...'}
+            value={eventsLoading ? '...' : `${netProfit > 0 ? '+' : ''}${formatSUI(netProfit)} SUI`}
+            sub={eventsLoading ? '' : isProfitable ? 'PROFITABLE' : 'Building...'}
             accent={isProfitable ? 'text-green-400' : 'text-yellow-400'}
           />
           <StatCard
             label="Total Earned"
-            value={treasuryLoading ? '...' : `${formatSUI(totalEarned)} SUI`}
-            sub={`${treasurySales} sales`}
+            value={eventsLoading ? '...' : `${formatSUI(liveEarned)} SUI`}
+            sub={`${liveSales} sales (live)`}
           />
           <StatCard
-            label="Total Spent"
-            value={treasuryLoading ? '...' : `${formatSUI(totalSpent)} SUI`}
+            label="Est. Gas Spent"
+            value={eventsLoading ? '...' : `${formatSUI(estimatedGas)} SUI`}
             sub="Gas + storage"
           />
           <StatCard
             label="Content Created"
-            value={treasuryLoading ? '...' : contentCreated}
-            sub="Intel packages"
+            value={eventsLoading ? '...' : liveContentCreated}
+            sub="Intel packages (live)"
           />
           <StatCard
             label="Wallet Balance"

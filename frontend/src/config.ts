@@ -21,6 +21,12 @@ export const HIDDEN_LISTING_IDS: string[] = [
   '0x30c8d19cfc64495c39e27c8b897a72da1ed93e637dac61a6ebfb2fdd1e71f402', // Duplicate: Trending Crypto Momentum
 ];
 
+// Title patterns to hide (case-insensitive) — catches future test listings automatically
+export const HIDDEN_TITLE_PATTERNS: string[] = [
+  'pipeline test',
+  'test report',
+];
+
 export const SUI_EXPLORER = 'https://suiscan.xyz/testnet';
 export function explorerUrl(type: 'object' | 'tx' | 'account', id: string): string {
   return `${SUI_EXPLORER}/${type}/${id}`;

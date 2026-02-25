@@ -58,6 +58,81 @@ function ConfidenceBar({ value }: { value: number }) {
   );
 }
 
+function StyledMarkdown({ text }: { text: string }) {
+  const lines = text.split('\n');
+  const elements: React.ReactElement[] = [];
+  let listItems: string[] = [];
+  let listType: 'ul' | 'ol' | null = null;
+
+  function flushList() {
+    if (listItems.length === 0) return;
+    const Tag = listType === 'ol' ? 'ol' : 'ul';
+    const cls = listType === 'ol' ? 'list-decimal' : 'list-disc';
+    elements.push(
+      <Tag key={elements.length} className={`${cls} list-inside space-y-1 text-gray-300 text-sm`}>
+        {listItems.map((item, i) => <li key={i}>{renderInline(item)}</li>)}
+      </Tag>
+    );
+    listItems = [];
+    listType = null;
+  }
+
+  function renderInline(line: string) {
+    // Bold: **text**
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
+      }
+      return <span key={i}>{part}</span>;
+    });
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed === '') { flushList(); continue; }
+    if (trimmed === '---' || trimmed === '***') {
+      flushList();
+      elements.push(<hr key={elements.length} className="border-gray-700" />);
+      continue;
+    }
+    if (trimmed.startsWith('### ')) {
+      flushList();
+      elements.push(<h3 key={elements.length} className="text-white font-bold text-base mt-2">{renderInline(trimmed.slice(4))}</h3>);
+      continue;
+    }
+    if (trimmed.startsWith('## ')) {
+      flushList();
+      elements.push(<h2 key={elements.length} className="text-white font-bold text-lg mt-3">{renderInline(trimmed.slice(3))}</h2>);
+      continue;
+    }
+    if (trimmed.startsWith('# ')) {
+      flushList();
+      elements.push(<h1 key={elements.length} className="text-white font-bold text-xl mt-4">{renderInline(trimmed.slice(2))}</h1>);
+      continue;
+    }
+    if (/^[-*]\s/.test(trimmed)) {
+      if (listType !== 'ul') flushList();
+      listType = 'ul';
+      listItems.push(trimmed.replace(/^[-*]\s+/, ''));
+      continue;
+    }
+    if (/^\d+[.)]\s/.test(trimmed)) {
+      if (listType !== 'ol') flushList();
+      listType = 'ol';
+      listItems.push(trimmed.replace(/^\d+[.)]\s+/, ''));
+      continue;
+    }
+    flushList();
+    elements.push(<p key={elements.length} className="text-gray-300 text-sm leading-relaxed">{renderInline(trimmed)}</p>);
+  }
+  flushList();
+
+  return <div className="space-y-2">{elements}</div>;
+}
+
 export default function IntelViewer({ content }: Props) {
   const payload = tryParsePayload(content);
   const [visibleSteps, setVisibleSteps] = useState(0);
@@ -82,12 +157,15 @@ export default function IntelViewer({ content }: Props) {
     return () => clearInterval(timer);
   }, [content]);
 
-  // Fallback: render as plain text if not a valid payload
+  // Fallback: render styled markdown-like content if not a valid payload
   if (!payload) {
     return (
-      <div className="bg-gray-900 rounded-xl p-6 border border-gray-700">
-        <div className="text-green-400 text-sm font-mono mb-2">Decrypted Content:</div>
-        <pre className="text-gray-300 text-sm whitespace-pre-wrap font-mono leading-relaxed">{content}</pre>
+      <div className="bg-gray-900 rounded-xl p-6 border border-gray-700 space-y-4">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-2 h-2 rounded-full bg-green-500" />
+          <span className="text-green-400 text-sm font-semibold uppercase tracking-wider">Decrypted Intelligence</span>
+        </div>
+        <StyledMarkdown text={content} />
       </div>
     );
   }

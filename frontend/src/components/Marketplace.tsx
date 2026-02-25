@@ -3,7 +3,7 @@ import { useSuiClientQuery, useSignAndExecuteTransaction, useSignPersonalMessage
 import { Transaction } from '@mysten/sui/transactions';
 import { fromHex } from '@mysten/sui/utils';
 import { SealClient, SessionKey, EncryptedObject } from '@mysten/seal';
-import { PACKAGE_ID, MARKETPLACE_ID, SEAL_KEY_SERVERS, WALRUS_AGGREGATOR, HIDDEN_LISTING_IDS } from '../config';
+import { PACKAGE_ID, MARKETPLACE_ID, SEAL_KEY_SERVERS, WALRUS_AGGREGATOR, HIDDEN_LISTING_IDS, HIDDEN_TITLE_PATTERNS } from '../config';
 import { getTheme } from '../themes';
 import IntelViewer from './IntelViewer';
 import type { WalletAccount } from '@mysten/wallet-standard';
@@ -26,7 +26,10 @@ function decodeBytes(bytes: number[]): string {
 }
 
 function formatSUI(mist: string): string {
-  return (Number(mist) / 1_000_000_000).toFixed(2);
+  const sui = Number(mist) / 1_000_000_000;
+  if (sui === 0) return '0';
+  if (sui >= 0.01) return sui.toFixed(2);
+  return sui.toFixed(9).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 function getTimeAgo(ms: string): string {
@@ -319,6 +322,11 @@ function MarketplaceCard({ listingId, account, onDecrypt }: CardProps) {
   }
 
   const title = decodeBytes(fields.title);
+
+  // Hide listings matching title patterns (catches future test listings automatically)
+  const titleLower = title.toLowerCase();
+  if (HIDDEN_TITLE_PATTERNS.some(p => titleLower.includes(p))) return null;
+
   const description = decodeBytes(fields.description);
   const themeName = fields.thumbnail_url?.length > 0 ? decodeBytes(fields.thumbnail_url) : 'blue-data';
   const theme = getTheme(themeName);
