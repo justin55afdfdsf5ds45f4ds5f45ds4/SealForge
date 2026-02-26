@@ -1,0 +1,38 @@
+name: SealForge Agent Loop
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm ci
+
+      - name: Run autonomous agent
+        working-directory: scripts
+        env:
+          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+          SUI_PRIVATE_KEY: ${{ secrets.SUI_PRIVATE_KEY }}
+        run: npx tsx src/sealforge-agent.ts auto
+
+      - name: Commit activity log
+        run: |
+          git config user.name "SealForge Agent"
+          git config user.email "agent@sealforge.ai"
+          git add frontend/public/agent-activity.json || true
+          git diff --cached --quiet || git commit -m "Agent loop: new intelligence published"
+          git push || true
