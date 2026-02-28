@@ -3,6 +3,13 @@ import { useSuiClient } from '@mysten/dapp-kit';
 import { PACKAGE_ID, explorerUrl } from '../config';
 import type { SuiEvent } from '@mysten/sui/jsonRpc';
 
+function formatSUI(mist: string | number): string {
+  const sui = Number(mist) / 1_000_000_000;
+  if (sui === 0) return '0';
+  if (sui >= 0.01) return sui.toFixed(2);
+  return sui.toFixed(9).replace(/0+$/, '').replace(/\.$/, '');
+}
+
 export default function ActivityFeed() {
   const suiClient = useSuiClient();
   const [events, setEvents] = useState<SuiEvent[]>([]);
@@ -48,7 +55,7 @@ export default function ActivityFeed() {
           icon: '$',
           color: 'text-green-400 bg-green-400/10',
           title: 'Content Purchased',
-          detail: `${(Number(parsed?.price || 0) / 1e9).toFixed(2)} SUI`,
+          detail: `${formatSUI(parsed?.price || 0)} SUI`,
         };
       case 'BlobUpdated':
         return {

@@ -64,7 +64,7 @@ export interface ScanResult {
 
 export async function fetchSuiChainTVL(): Promise<SuiChainData | null> {
   try {
-    const res = await fetch('https://api.llama.fi/v2/chains');
+    const res = await fetch('https://api.llama.fi/v2/chains', { signal: AbortSignal.timeout(15000) });
     const chains = await res.json() as any[];
     const sui = chains.find((c: any) => c.name === 'Sui');
     if (!sui) return null;
@@ -82,7 +82,7 @@ export async function fetchSuiChainTVL(): Promise<SuiChainData | null> {
 
 export async function fetchSuiYields(): Promise<YieldPool[]> {
   try {
-    const res = await fetch('https://yields.llama.fi/pools');
+    const res = await fetch('https://yields.llama.fi/pools', { signal: AbortSignal.timeout(15000) });
     const data = await res.json() as any;
     const pools = (data.data || [])
       .filter((p: any) => p.chain === 'Sui')
@@ -104,7 +104,7 @@ export async function fetchSuiYields(): Promise<YieldPool[]> {
 
 export async function fetchSuiProtocols(): Promise<ProtocolData[]> {
   try {
-    const res = await fetch('https://api.llama.fi/protocols');
+    const res = await fetch('https://api.llama.fi/protocols', { signal: AbortSignal.timeout(15000) });
     const protocols = await res.json() as any[];
     return protocols
       .filter((p: any) => (p.chains || []).includes('Sui'))
@@ -128,7 +128,7 @@ export async function fetchSuiProtocols(): Promise<ProtocolData[]> {
 
 export async function fetchTrending(): Promise<TrendingCoin[]> {
   try {
-    const res = await fetch('https://api.coingecko.com/api/v3/search/trending');
+    const res = await fetch('https://api.coingecko.com/api/v3/search/trending', { signal: AbortSignal.timeout(10000) });
     const data = await res.json() as any;
     return (data.coins || []).slice(0, 10).map((c: any) => ({
       name: c.item?.name || 'unknown',
@@ -145,7 +145,7 @@ export async function fetchTrending(): Promise<TrendingCoin[]> {
 
 export async function fetchSuiPrice(): Promise<SuiPrice | null> {
   try {
-    const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=sui&vs_currencies=usd&include_24hr_change=true&include_market_cap=true');
+    const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=sui&vs_currencies=usd&include_24hr_change=true&include_market_cap=true', { signal: AbortSignal.timeout(10000) });
     const data = await res.json() as any;
     if (!data.sui) return null;
     return {

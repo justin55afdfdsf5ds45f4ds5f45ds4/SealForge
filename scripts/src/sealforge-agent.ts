@@ -432,11 +432,12 @@ async function phasePublish(payload: IntelligencePayload, signal: Signal): Promi
       updateTx.pure.vector('u8', Array.from(new TextEncoder().encode(blobId))),
     ],
   });
-  await suiClient.signAndExecuteTransaction({
+  const updateResult = await suiClient.signAndExecuteTransaction({
     signer: keypair,
     transaction: updateTx,
     options: { showEffects: true },
   });
+  await suiClient.waitForTransaction({ digest: updateResult.digest });
 
   log.log('PUBLISH', `Listed: "${signal.title}" at ${signal.price_sui} SUI`);
   log.log('PUBLISH', `SuiScan: ${explorerLink('object', listingId)}`);

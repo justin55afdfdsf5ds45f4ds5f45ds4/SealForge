@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSuiClientQuery, useSuiClient } from '@mysten/dapp-kit';
-import { MARKETPLACE_ID, AGENT_ADDRESS, PACKAGE_ID, TREASURY_ID, explorerUrl } from '../config';
+import { MARKETPLACE_ID, AGENT_ADDRESS, PACKAGE_ID, TREASURY_ID, HIDDEN_LISTING_IDS, HIDDEN_TITLE_PATTERNS, explorerUrl } from '../config';
 
 interface ActivityEntry {
   timestamp: string;
@@ -40,7 +40,7 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string 
 function formatSUI(mist: string | number): string {
   const sui = Number(mist) / 1_000_000_000;
   if (sui === 0) return '0';
-  if (sui >= 0.01) return sui.toFixed(4);
+  if (sui >= 0.01) return sui.toFixed(2);
   return sui.toFixed(9).replace(/0+$/, '').replace(/\.$/, '');
 }
 
@@ -109,8 +109,34 @@ export default function Dashboard() {
   }, [activityLog]);
 
   const fields = (marketplaceObj?.data?.content as any)?.fields;
-  const totalListings = fields?.total_listings ?? '—';
+  const allListingIds: string[] = fields?.listings ?? [];
   const totalSales = fields?.total_sales ?? '—';
+
+  // Count visible listings (same filters as Marketplace page)
+  const [visibleCount, setVisibleCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (allListingIds.length === 0) return;
+    // First pass: filter by hidden IDs
+    const afterIdFilter = allListingIds.filter(id => !HIDDEN_LISTING_IDS.includes(id));
+    // Second pass: fetch titles and filter by pattern
+    async function countVisible() {
+      let count = 0;
+      for (const id of afterIdFilter) {
+        try {
+          const obj = await suiClient.getObject({ id, options: { showContent: true } });
+          const f = (obj?.data?.content as any)?.fields;
+          if (!f) continue;
+          const title = new TextDecoder().decode(new Uint8Array(f.title || []));
+          const titleLower = title.toLowerCase();
+          if (HIDDEN_TITLE_PATTERNS.some(p => titleLower.includes(p))) continue;
+          count++;
+        } catch { count++; }
+      }
+      setVisibleCount(count);
+    }
+    countVisible();
+  }, [allListingIds.length, suiClient]);
 
   // Estimate gas spending (~0.01 SUI per listing for create + blob update)
   const estimatedGas = liveContentCreated * 10_000_000;
@@ -201,7 +227,7 @@ export default function Dashboard() {
 
       {/* Marketplace Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Listings" value={isLoading ? '...' : totalListings} sub="Active on marketplace" />
+        <StatCard label="Listings" value={isLoading ? '...' : visibleCount ?? '...'} sub="Active on marketplace" />
         <StatCard label="Total Sales" value={isLoading ? '...' : totalSales} sub="Purchases completed" />
         <StatCard label="Encryption" value="Seal TSS" sub="2-of-2 threshold" />
         <StatCard label="Storage" value="Walrus" sub="Decentralized blobs" />

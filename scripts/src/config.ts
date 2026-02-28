@@ -77,6 +77,7 @@ export async function uploadToWalrus(data: Uint8Array): Promise<string> {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: data,
+      signal: AbortSignal.timeout(30000),
     }
   );
 
@@ -97,7 +98,8 @@ export async function uploadToWalrus(data: Uint8Array): Promise<string> {
 
 export async function downloadFromWalrus(blobId: string): Promise<Uint8Array> {
   const response = await fetch(
-    `${WALRUS_AGGREGATOR}/v1/blobs/${blobId}`
+    `${WALRUS_AGGREGATOR}/v1/blobs/${blobId}`,
+    { signal: AbortSignal.timeout(30000) }
   );
 
   if (!response.ok) {
