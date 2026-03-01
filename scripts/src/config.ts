@@ -116,7 +116,8 @@ export function loadKeypair(): Ed25519Keypair {
   // Option 1: From environment variable (base64 encoded secret key)
   const envKey = process.env.SUI_PRIVATE_KEY;
   if (envKey) {
-    return Ed25519Keypair.fromSecretKey(envKey);
+    const raw = Buffer.from(envKey, 'base64');
+    return Ed25519Keypair.fromSecretKey(raw);
   }
 
   // Option 2: From Sui CLI keystore (keys are base64-encoded with flag byte prefix)
