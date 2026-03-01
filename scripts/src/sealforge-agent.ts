@@ -545,5 +545,6 @@ async function main() {
 main().catch((err) => {
   console.error('Agent failed:', err);
   log.save();
-  process.exit(1);
+  // Exit 0 even on failure — Railway cron restarts non-zero exits immediately
+  process.exit(0);
 });

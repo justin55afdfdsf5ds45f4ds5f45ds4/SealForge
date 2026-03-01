@@ -23,3 +23,7 @@ Thumbs.db
 # Temporary scripts
 install-sui.ps1
 extract-sui.ps1
+
+# Agent seed artifacts
+listing_*.json
+marketplace.json

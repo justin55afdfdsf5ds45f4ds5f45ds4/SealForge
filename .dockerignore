@@ -1,0 +1,14 @@
+.git
+.github
+.tools
+.vercel
+frontend
+move
+agent
+skill
+node_modules
+listing_*.json
+marketplace.json
+*.md
+Thumbs.db
+.DS_Store
