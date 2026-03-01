@@ -1,5 +1,2 @@
 [build]
-buildCommand = "cd scripts && npm install"
-
-[deploy]
-startCommand = "cd scripts && node --import tsx src/sealforge-agent.ts auto"
+dockerfilePath = "Dockerfile"
